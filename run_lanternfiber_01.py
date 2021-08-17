@@ -17,7 +17,7 @@ core_radius = 32.8/2 # microns
 
 f = lanternfiber(n_core, n_cladding, core_radius, wavelength)
 f.find_fiber_modes()
-f.make_fiber_modes(plot=True)
+f.make_fiber_modes(show_plots=True)
 # f.plot_fiber_modes(0)
 
 

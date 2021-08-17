@@ -33,9 +33,9 @@ datapath = '/Users/bnorris/Dropbox/Win-Mac Share/rsoft/PL_getmatrix/'
 filepref = '19cPLJ21_sm2mm_noOS_wg1_grid0-5'
 
 datapath = '/Users/bnorris/Dropbox/Win-Mac Share/rsoft/PL_getmatrix_19cPLJ21_MM2SM_run20210803/'
-filepref = ''
+filepref = '19cPLJ21_mm2sm_run20210803_randlaunches_nophase_01'
 
-filepref = 'bptmp4'
+# filepref = 'bptmp4'
 
 # datapath = '/Users/bnorris/Dropbox/Win-Mac Share/fiber_sims/'
 # filepref = 'bptmp2'

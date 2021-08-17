@@ -31,6 +31,8 @@ class Rsoftdata:
         self.filename = None
         self.allFinalFluxVals = []
         self.allResults = []
+        self.output_ampls = None
+        self.output_phases = None
 
     class resultsSet:
         # Class to hold all the results for single simulation
@@ -79,6 +81,13 @@ class Rsoftdata:
         )
         self.MONdata = np.asarray(X.loc[:, 1:])
         self.MONposn = np.asarray(X.loc[:, 0])
+
+    def loadMONOBJ(self, filename="bptmp"):
+        X = pd.read_csv(self.datapath + filename + "_mon.dat",
+                        skiprows=3, header=None, delim_whitespace=True)
+        allvals = np.asarray(X.loc[0,1:])
+        self.output_ampls = allvals[::2]
+        self.output_phases = allvals[1::2]
 
     def loadXZ(self, filename="bptmp"):
         X = pd.read_csv(
