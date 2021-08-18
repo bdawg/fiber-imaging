@@ -24,15 +24,21 @@ class lanternfiber:
         self.all_mmpowers = []
         self.all_mmphases = []
         self.all_smphases = []
-        self.Cmat = None # Transfer matrix from SM to MM
-        self.Dmat = None # Transfer matrix from MM to SM
+        self.Cmat = None # Transfer matrix
         self.out_field_ampl = []
         self.out_field_phase = []
         self.wg_posns = None
+        self.microns_per_pixel = None
+        self.npix = None
+        self.input_field = None
 
         if n_core is not None:
             self.NA = ofiber.numerical_aperture(n_core, n_cladding)
             self.V = ofiber.V_parameter(core_radius, self.NA, wavelength)
+
+        # If the order of Rsoft monitor objects does not match the conventional waveguide order,
+        # specify order here. Using rsoft numbering (so starts at 1).
+        self.monitor_order = [10, 9, 14, 15, 11, 6, 5, 4, 3, 8, 13, 18, 19, 16, 17, 12, 7, 2, 1]
 
         # Specify mode indices
         self.LP_modes = np.array([[0,1],
@@ -112,11 +118,15 @@ class lanternfiber:
 
         r = np.linspace(0, max_r, npix) # Radial positions, normalised so core_radius = 1
         self.max_r = max_r
+        self.npix = npix
         self.allmodefields_cos_polar = []
         self.allmodefields_cos_cart = []
         self.allmodefields_sin_polar = []
         self.allmodefields_sin_cart = []
         self.allmodefields_rsoftorder = []
+
+        array_size_microns = self.max_r * self.core_radius * 2
+        self.microns_per_pixel = array_size_microns / (npix*2)
 
         for mode_to_calc in range(self.nLPmodes):
             field_1d = ofiber.LP_radial_field(self.V, self.allmodes_b[mode_to_calc],
@@ -194,6 +204,71 @@ class lanternfiber:
         print('LP mode %d, %d' % (self.allmodes_l[mode_to_plot], self.allmodes_m[mode_to_plot]))
 
 
+    def plot_injection_field(self, field, fignum=1):
+        sz = self.max_r * self.core_radius
+        plt.figure(fignum)
+        plt.clf()
+        plt.subplot(121)
+        plt.imshow(np.abs(field), extent=(-sz, sz, -sz, sz))
+        core_circle = plt.Circle((0,0), self.core_radius, color='w', fill=False, linestyle='--', alpha=0.2)
+        plt.gca().add_patch(core_circle)
+        plt.xlabel('Position ($\mu$m)')
+        plt.ylabel('Position ($\mu$m)')
+        plt.title('Amplitude')
+        plt.colorbar()
+        plt.subplot(122)
+        plt.imshow(np.angle(field), extent=(-sz, sz, -sz, sz), cmap='bwr')
+        core_circle = plt.Circle((0,0), self.core_radius, color='w', fill=False, linestyle='--', alpha=0.2)
+        plt.gca().add_patch(core_circle)
+        plt.xlabel('Position ($\mu$m)')
+        plt.ylabel('Position ($\mu$m)')
+        plt.title('Phase')
+        plt.colorbar()
+        plt.tight_layout()
+
+
+    def make_arb_input_field(self, field_type, power=1, location=[0,0], sigma=3, add_to_existing=False,
+                             show_plots=False):
+        """
+        Make an arbitrary input field to inject into MM region
+        Parameters
+        ----------
+        field_type
+            Type of field to create. Current options:
+                'gaussian'
+        power
+            Total power in field
+        location
+            Location (in microns) of field feature, relative to centre
+        sigma
+            Standard devitaion for Gaussian field
+        add_to_existing : bool
+            If true, add to current field in self.input_field, rather than replacing it.
+        """
+
+        if field_type is 'gaussian':
+            posn = np.array(location) / self.microns_per_pixel
+            xvals = np.linspace(-self.npix, self.npix, self.npix*2)
+            xgrid,ygrid = np.meshgrid(xvals,xvals)
+            input_fld_ampl = np.exp(-( (xgrid-posn[0])**2 + (ygrid-posn[1])**2) / (2*sigma**2))
+            input_fld_ampl = input_fld_ampl / np.sqrt(np.sum(input_fld_ampl**2)) * power
+            input_fld_phase = np.zeros((self.npix*2,self.npix*2))
+            input_fld = input_fld_ampl * np.exp(1j * input_fld_phase)
+        else:
+            print('Error: unknown field type specified')
+            return
+
+        if show_plots:
+            self.plot_injection_field(input_fld)
+
+        if add_to_existing:
+            if self.input_field is None:
+                self.input_field = np.zeros((self.npix*2, self.npix*2), dtype='complex')
+            self.input_field = self.input_field + input_fld
+        else:
+            self.input_field = input_fld
+
+
     def make_complex_fld(self, raw_ampl):
         """
         Convert a raw amplitude (where values <0 mean pi phase) to a complex field
@@ -251,7 +326,7 @@ class lanternfiber:
 
     def save_multiple_rsoft(self, modecoeffs, outpath='./', size_data=100,
                             makeBatFile=False, indFile="bptmp.ind", outPrefix="BPScan",
-                            numBatfiles=1, savemetadata=True, show_plots=True, beamprop_prefix=''):
+                            numBatfiles=1, savemetadata=True, show_plots=True, beamprop_prefix='bp_'):
         """
         Save multiple rosft launch fields for a range of modes, and .bat file to run them
         Parameters
@@ -278,6 +353,7 @@ class lanternfiber:
             for k in range(self.nmodes):
                 cur_modefield = cur_modefield + cur_coeffs[k] * \
                     self.make_complex_fld(self.allmodefields_rsoftorder[k])
+            self.input_field = cur_modefield
             outfilename = outPrefix + '_%.2d' % filecount
             self.saveToRSoft(cur_modefield, outfile=outpath+outfilename, size_data=size_data)
             allOutfiles.append(outfilename)
@@ -314,7 +390,7 @@ class lanternfiber:
                 batfile = open(outpath + outPrefix + "_" + str(k) + ".bat", "w")
                 allBatfileNames.append(outPrefix + "_" + str(k) + ".bat")
                 for launch_file in curOutfiles:
-                    cmdStr = (progname + " " + indFile + " prefix=" + outPrefix + launch_file + " launch_file="
+                    cmdStr = (progname + " " + indFile + " prefix=" + beamprop_prefix + launch_file + " launch_file="
                             + launch_file + "_inputfield" + ".fld wait=0\n")
                     print(cmdStr)
                     batfile.write(cmdStr)
@@ -511,7 +587,8 @@ class lanternfiber:
     def load_rsoft_data_customfld(self, rsoft_datadir, rsoft_fileprefix, indfile, show_plots=False,
                               av_fluxes=100, save_output=False, fignum=2, LP_file_numbering=False,
                               zero_mmphase=True, np_fileprefix=None, nwgs=None, ap_rad=30,
-                              show_indivmasks=False, use_pathway_mons=False, use_monitor_objects=False):
+                              show_indivmasks=False, use_pathway_mons=False, use_monitor_objects=False,
+                              reorder_monobjs=False):
         """
         Load rsoft outputs for MM to SM simulations, where the input FLD was generated from this code
         and no monitors are used.
@@ -575,8 +652,14 @@ class lanternfiber:
                 self.all_smphases.append(smphase)
             elif use_monitor_objects:
                 r.loadMONOBJ(filename=rsoft_filename)
-                self.all_smpowers.append(r.output_ampls)
-                self.all_smphases.append(r.output_phases)
+                ampls = r.output_ampls
+                phases = r.output_phases
+                if reorder_monobjs:
+                    inds = np.array(self.monitor_order) - 1
+                    ampls = ampls[inds]
+                    phases = phases[inds]
+                self.all_smpowers.append(ampls)
+                self.all_smphases.append(phases)
             else:
                 r.loadFLD(filename=rsoft_filename)
                 self.out_field_ampl.append(r.FLDampl)
@@ -703,7 +786,7 @@ class lanternfiber:
                 mm_val = self.all_mmpowers[col_num][col_num] * np.exp(1j*self.all_mmphases[col_num][col_num])
             col = self.all_smpowers[col_num] * np.exp(1j*self.all_smphases[col_num]/180*np.pi) / mm_val
             Dmat[:,col_num] = col
-        self.Dmat = Dmat
+        self.Cmat = Dmat
 
 
     def load_rsoft_data_sm2mm_single(self, rsoft_datadir, rsoft_fileprefix, show_plots=False,
@@ -892,14 +975,12 @@ class lanternfiber:
             Figure number in which to display plots
         pausetime
             Time (s) to wait between plots
-        num_to_show : bool
+        num_to_show
             Which entry of the input list to plot
         unnormalise_smpower : bool
             If rsoft is normalising monitor power by input power, this will 'un-normalise'
             the monitor power by multiplying it by the total input power.
         """
-        new_pred_inds = np.array([ 9,  2,  3, 14,  6,  4,  1, 11, 10,  0,  8,  7,
-                                   18, 17, 16, 15,  5, 13, 12])
 
         plt.figure(fignum)
         nmeas = len(input_powers)
@@ -913,22 +994,17 @@ class lanternfiber:
             plt.subplot(211)
             plt.plot(output_power,'-x')
             input_val = input_powers[n] * np.exp(1j*input_phases[n]/180*np.pi)
-            # plt.plot(np.abs(np.matmul(matrix, input_powers[n])),'-+')
             self.pred_pow = np.abs(np.matmul(matrix, input_val))
             plt.plot(self.pred_pow,'-+')
-            # plt.plot(self.pred_pow[new_pred_inds],'-+')
             plt.ylabel('SM output amplitudes')
             plt.subplot(212)
             plt.plot(output_phases[n],'-x')
-            # newangs = np.angle(np.matmul(matrix, input_powers[n]))/np.pi*180
             newangs = np.angle(np.matmul(matrix, input_val))/np.pi*180
             newangs[newangs < 0] = newangs[newangs < 0]+360
             self.pred_phase = newangs
             plt.plot(newangs,'-+')
-            # plt.plot(newangs[new_pred_inds],'-+')
             plt.ylabel('SM output phase')
             plt.xlabel('Waveguide number)')
-            # plt.pause(pausetime)
             plt.pause(0.001)
 
             plt.figure(fignum+2)
@@ -947,46 +1023,46 @@ class lanternfiber:
                     break
 
 
-    def test_matrix_single(self, matrix, input_powers, input_phases, output_powers, output_phases, fignum=1,
-                           pausetime=1):
-        """
-        Plot the outputs from a set of inputs using the transfer matrix, and overplot
-        the 'true' values measured.
-
-        Parameters
-        ----------
-        matrix
-            Matrix to use for testing
-        input_powers
-            List or array of input powers (one row / item per measurement)
-        input_phases
-            List or array of input phases (one row / item per measurement)
-        output_powers
-            List or array of output powers (one row / item per measurement)
-        output_phases
-            List or array of output phases (one row / item per measurement)
-        fignum
-            Figure number in which to display plots
-        pausetime
-            Time (s) to wait between plots
-        """
-        plt.figure(fignum)
-        plt.clf()
-        plt.subplot(211)
-        plt.plot(output_powers,'-x')
-        input_val = input_powers * np.exp(1j*input_phases/180*np.pi)
-        # plt.plot(np.abs(np.matmul(matrix, input_powers[n])),'-+')
-        plt.plot(np.abs(np.matmul(matrix, input_val)),'-+')
-        plt.ylabel('SM output amplitudes')
-        plt.subplot(212)
-        plt.plot(output_phases,'-x')
-        # newangs = np.angle(np.matmul(matrix, input_powers[n]))/np.pi*180
-        newangs = np.angle(np.matmul(matrix, input_val))/np.pi*180
-        newangs[newangs < 0] = newangs[newangs < 0]+360
-        plt.plot(newangs,'-+')
-        plt.ylabel('SM output phase')
-        plt.xlabel('Waveguide number)')
-        plt.pause(pausetime)
+    # def test_matrix_single(self, matrix, input_powers, input_phases, output_powers, output_phases, fignum=1,
+    #                        pausetime=1):
+    #     """
+    #     Plot the outputs from a set of inputs using the transfer matrix, and overplot
+    #     the 'true' values measured.
+    #
+    #     Parameters
+    #     ----------
+    #     matrix
+    #         Matrix to use for testing
+    #     input_powers
+    #         List or array of input powers (one row / item per measurement)
+    #     input_phases
+    #         List or array of input phases (one row / item per measurement)
+    #     output_powers
+    #         List or array of output powers (one row / item per measurement)
+    #     output_phases
+    #         List or array of output phases (one row / item per measurement)
+    #     fignum
+    #         Figure number in which to display plots
+    #     pausetime
+    #         Time (s) to wait between plots
+    #     """
+    #     plt.figure(fignum)
+    #     plt.clf()
+    #     plt.subplot(211)
+    #     plt.plot(output_powers,'-x')
+    #     input_val = input_powers * np.exp(1j*input_phases/180*np.pi)
+    #     # plt.plot(np.abs(np.matmul(matrix, input_powers[n])),'-+')
+    #     plt.plot(np.abs(np.matmul(matrix, input_val)),'-+')
+    #     plt.ylabel('SM output amplitudes')
+    #     plt.subplot(212)
+    #     plt.plot(output_phases,'-x')
+    #     # newangs = np.angle(np.matmul(matrix, input_powers[n]))/np.pi*180
+    #     newangs = np.angle(np.matmul(matrix, input_val))/np.pi*180
+    #     newangs[newangs < 0] = newangs[newangs < 0]+360
+    #     plt.plot(newangs,'-+')
+    #     plt.ylabel('SM output phase')
+    #     plt.xlabel('Waveguide number)')
+    #     plt.pause(pausetime)
 
 
     def read_ind_file(self, rsoft_datadir, ind_filename, skipfirst=True, getWGposns=False):
@@ -1113,8 +1189,63 @@ class lanternfiber:
             self.all_smpowers[k] = self.all_smpowers[k] / np.sqrt(np.sum(np.array(self.all_smpowers[k])**2))
 
 
+    def make_rsoft_launch_fields(self, set_type, num_outs=1, npix=200, max_r=2, indfile=None, show_plots=False,
+                                 make_bat_file=False, num_bat_files=1, outpath=None, outprefix=None):
+        """
+        Create a set of launch fields for an rsoft beamprop sim, and create batch files to run a big analysis
+        Parameters
+        ----------
+        set_type : str
+            Which type of set of fields to make. OPtions are:
+                'probe' - Make set of fields exciting one input mode at a time, each with power=1 and phase=0
+                'randampphase' - Make a set of fields each with randomly chosen amplitude and phase.
+        num_outs
+            How many output fields to make - currently only for 'randampphase'
+        npix
+            Half-width of mode field calculation in pixels
+        max_r
+            Maximum radius to calculate mode field, where r=1 is the core diameter
+        indfile
+            Name of rsoft .ind file for beamprop batch files
+        show_plots : bool
+            Show plots
+        make_bat_file : bool
+            Save .bat files to run a big rsoft analysis
+        num_bat_files
+            Number of batch files (for parallel processing)
+        outpath
+            .fld and batch file output path
+        outprefix
+            File prefix for output filenames
+        """
+        self.max_r = max_r
+        array_size_microns = self.max_r * self.core_radius * 2
+        microns_per_pixel = array_size_microns / (npix*2)
+        self.find_fiber_modes()
+        self.make_fiber_modes(show_plots=show_plots, npix=npix)
 
+        if set_type is 'probe':
+            modecoeffs = []
+            for k in range(self.nmodes):
+                coeff = np.zeros(self.nmodes)
+                coeff[k] = 1
+                modecoeffs.append(coeff)
+            self.save_multiple_rsoft(modecoeffs, outpath=outpath, outPrefix=outprefix, size_data=array_size_microns/2,
+                                  indFile=indfile, makeBatFile=make_bat_file, numBatfiles=num_bat_files)
 
+        elif set_type is 'randampphase':
+            loval = 0
+            hival = 1
+            loval_phase = 0
+            hival_phase = 2*np.pi
+            modecoeffs = []
+            for k in range(num_outs):
+                mode_amps = np.random.rand(self.nmodes) * (hival-loval) + loval
+                mode_phases = np.random.rand(self.nmodes) * (hival_phase-loval_phase) + loval_phase
+                modecoeff = mode_amps * np.exp(1j*mode_phases)
+                modecoeffs.append(modecoeff)
+            self.save_multiple_rsoft(modecoeffs, outpath=outpath, outPrefix=outprefix, size_data=array_size_microns/2,
+                                     indFile=indfile, makeBatFile=make_bat_file, numBatfiles=num_bat_files)
 
 
 
