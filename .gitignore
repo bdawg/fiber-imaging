@@ -1,9 +1,2 @@
 
 *.pyc
-Cmat.npy
-testfindmapping.py
-testmakelaunchfield01.py
-testmakelaunchfield02.py
-testmakematmm2sm_02.py
-testmakematmm2sm_03.py
-testmakematsm2mm_03.py

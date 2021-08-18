@@ -131,6 +131,7 @@ class lanternfiber:
         for mode_to_calc in range(self.nLPmodes):
             field_1d = ofiber.LP_radial_field(self.V, self.allmodes_b[mode_to_calc],
                                               self.allmodes_l[mode_to_calc], r)
+            #TODO - LP02 comes out with core being pi phase and ring being 0 phase... investigate this.
 
             phivals = np.linspace(0, 2*np.pi, npix)
             phi_cos = np.cos(self.allmodes_l[mode_to_calc] * phivals)
@@ -208,7 +209,7 @@ class lanternfiber:
         sz = self.max_r * self.core_radius
         plt.figure(fignum)
         plt.clf()
-        plt.subplot(121)
+        plt.subplot(211)
         plt.imshow(np.abs(field), extent=(-sz, sz, -sz, sz))
         core_circle = plt.Circle((0,0), self.core_radius, color='w', fill=False, linestyle='--', alpha=0.2)
         plt.gca().add_patch(core_circle)
@@ -216,8 +217,8 @@ class lanternfiber:
         plt.ylabel('Position ($\mu$m)')
         plt.title('Amplitude')
         plt.colorbar()
-        plt.subplot(122)
-        plt.imshow(np.angle(field), extent=(-sz, sz, -sz, sz), cmap='bwr')
+        plt.subplot(212)
+        plt.imshow(np.angle(field), extent=(-sz, sz, -sz, sz), cmap='bwr', vmin=-np.pi, vmax=np.pi)
         core_circle = plt.Circle((0,0), self.core_radius, color='w', fill=False, linestyle='--', alpha=0.2)
         plt.gca().add_patch(core_circle)
         plt.xlabel('Position ($\mu$m)')
@@ -227,7 +228,7 @@ class lanternfiber:
         plt.tight_layout()
 
 
-    def make_arb_input_field(self, field_type, power=1, location=[0,0], sigma=3, add_to_existing=False,
+    def make_arb_input_field(self, field_type, power=1, location=[0,0], sigma=3, phase=0, add_to_existing=False,
                              show_plots=False):
         """
         Make an arbitrary input field to inject into MM region
@@ -251,8 +252,9 @@ class lanternfiber:
             xvals = np.linspace(-self.npix, self.npix, self.npix*2)
             xgrid,ygrid = np.meshgrid(xvals,xvals)
             input_fld_ampl = np.exp(-( (xgrid-posn[0])**2 + (ygrid-posn[1])**2) / (2*sigma**2))
-            input_fld_ampl = input_fld_ampl / np.sqrt(np.sum(input_fld_ampl**2)) * power
+            input_fld_ampl = input_fld_ampl / np.sqrt(np.sum(input_fld_ampl**2)) * np.sqrt(power)
             input_fld_phase = np.zeros((self.npix*2,self.npix*2))
+            input_fld_phase = np.ones((self.npix*2,self.npix*2)) * phase
             input_fld = input_fld_ampl * np.exp(1j * input_fld_phase)
         else:
             print('Error: unknown field type specified')
@@ -267,6 +269,97 @@ class lanternfiber:
             self.input_field = self.input_field + input_fld
         else:
             self.input_field = input_fld
+
+
+    def calc_injection(self, input_field=None, mode_field=None, mode_field_number=None, verbose=False):
+        """
+        Calculate the overlap integral between an input field and fiber mode.
+        Parameters
+        ----------
+        input_field
+            Complex input field. If not specified, will use self.input_field
+        mode_field
+            Complex fiber mode field. EITHER specify this or mode_field_number
+        mode_field_number
+            Index of fiber mode to use, if mode_field not specified
+        verbose : bool
+            Print values to console
+
+        Returns
+        -------
+        overlap_int
+            Total coupling efficiency
+        """
+        if (mode_field is not None) and (mode_field_number is not None):
+            print('Error: cannot specify both mode_field and mode_field_number.')
+            return
+        if input_field is None:
+            input_field = self.input_field
+        if mode_field_number is not None:
+            mode_field = self.make_complex_fld(self.allmodefields_rsoftorder[mode_field_number])
+        overlap_int = np.abs(np.sum(input_field*mode_field))**2 / \
+                      ( np.sum(np.abs(mode_field)**2) * np.sum(np.abs(input_field)**2) )
+        if verbose:
+            print('Total power in input field: %f' % np.sum(np.abs(input_field)**2))
+            print('Total power in mode field: %f' % np.sum(np.abs(mode_field)**2))
+            print('Injection efficiency: %f' % overlap_int)
+            print('Coupled power: %f' % (overlap_int*np.sum(np.abs(input_field)**2)))
+
+        return overlap_int
+
+
+    def calc_injection_multi(self, input_field=None, mode_field_numbers=None, verbose=False, show_plots=False,
+                             fignum=1):
+        """
+        Calculate the overlap integral between an input field and a set of fiber modes.
+        Parameters
+        ----------
+        input_field
+            Complex input field. If not specified, will use self.input_field
+        mode_field_numbers
+            List of indices of fiber modes to use
+        verbose : bool
+            Print values to console
+        show_plots : bool
+            Make a plot of coupling per mode
+        fignum
+
+        Returns
+        -------
+        overlap_int
+            Total coupling efficiency
+        overlap_int_vals
+            Array of coupling efficiencies for each mode
+        """
+        if input_field is None:
+            input_field = self.input_field
+        overlap_int_vals = []
+        for modenum in mode_field_numbers:
+            mode_field = self.make_complex_fld(self.allmodefields_rsoftorder[modenum])
+            cur_overlap_int = np.abs(np.sum(input_field*mode_field))**2 / \
+                          ( np.sum(np.abs(mode_field)**2) * np.sum(np.abs(input_field)**2) )
+            overlap_int_vals.append(cur_overlap_int)
+            if verbose:
+                print('Injection efficiency for mode %d: %f' % (modenum, cur_overlap_int))
+
+        overlap_int_vals = np.array(overlap_int_vals)
+        overlap_int = np.sum(overlap_int_vals)
+        if verbose:
+            print('Total power in input field: %f' % np.sum(np.abs(input_field)**2))
+            print('Injection efficiency: %f' % overlap_int)
+            print('Coupled power: %f' % (overlap_int*np.sum(np.abs(input_field)**2)))
+
+        if show_plots:
+            plt.figure(fignum)
+            plt.clf()
+            # plt.plot(mode_field_numbers, overlap_int_vals, '-o')
+            plt.bar(mode_field_numbers, overlap_int_vals, tick_label=mode_field_numbers)
+            plt.xlabel('Mode number')
+            plt.ylabel('Coupling efficiency')
+            plt.title('Total coupling efficiency: %f' % overlap_int)
+            plt.tight_layout()
+
+        return overlap_int, overlap_int_vals
 
 
     def make_complex_fld(self, raw_ampl):
@@ -1196,7 +1289,7 @@ class lanternfiber:
         Parameters
         ----------
         set_type : str
-            Which type of set of fields to make. OPtions are:
+            Which type of set of fields to make. Options are:
                 'probe' - Make set of fields exciting one input mode at a time, each with power=1 and phase=0
                 'randampphase' - Make a set of fields each with randomly chosen amplitude and phase.
         num_outs
