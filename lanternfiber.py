@@ -182,7 +182,7 @@ class lanternfiber:
         zlim
             Maximum value to plot
         """
-        plt.figure(1)
+        plt.figure(fignum)
         plt.clf()
         plt.subplot(121)
         sz = self.max_r * self.core_radius
@@ -297,19 +297,23 @@ class lanternfiber:
             input_field = self.input_field
         if mode_field_number is not None:
             mode_field = self.make_complex_fld(self.allmodefields_rsoftorder[mode_field_number])
-        overlap_int = np.abs(np.sum(input_field*mode_field))**2 / \
-                      ( np.sum(np.abs(mode_field)**2) * np.sum(np.abs(input_field)**2) )
+        # overlap_int = np.abs(np.sum(input_field*mode_field))**2 / \
+        #               ( np.sum(np.abs(mode_field)**2) * np.sum(np.abs(input_field)**2) )
+        overlap_int_complex = np.sum(input_field*mode_field) / \
+                      np.sqrt( np.sum(np.abs(mode_field)**2) * np.sum(np.abs(input_field)**2) )
+        overlap_int = np.abs(overlap_int_complex)**2
+
         if verbose:
             print('Total power in input field: %f' % np.sum(np.abs(input_field)**2))
             print('Total power in mode field: %f' % np.sum(np.abs(mode_field)**2))
             print('Injection efficiency: %f' % overlap_int)
             print('Coupled power: %f' % (overlap_int*np.sum(np.abs(input_field)**2)))
 
-        return overlap_int
+        return overlap_int, overlap_int_complex
 
 
     def calc_injection_multi(self, input_field=None, mode_field_numbers=None, verbose=False, show_plots=False,
-                             fignum=1):
+                             fignum=1, complex=False):
         """
         Calculate the overlap integral between an input field and a set of fiber modes.
         Parameters
@@ -334,15 +338,21 @@ class lanternfiber:
         if input_field is None:
             input_field = self.input_field
         overlap_int_vals = []
+        overlap_int_vals_complex = []
         for modenum in mode_field_numbers:
             mode_field = self.make_complex_fld(self.allmodefields_rsoftorder[modenum])
-            cur_overlap_int = np.abs(np.sum(input_field*mode_field))**2 / \
-                          ( np.sum(np.abs(mode_field)**2) * np.sum(np.abs(input_field)**2) )
+            # cur_overlap_int = np.abs(np.sum(input_field*mode_field))**2 / \
+            #               ( np.sum(np.abs(mode_field)**2) * np.sum(np.abs(input_field)**2) )
+            overlap_int_complex = np.sum(input_field*mode_field) / \
+                                  np.sqrt( np.sum(np.abs(mode_field)**2) * np.sum(np.abs(input_field)**2) )
+            cur_overlap_int = np.abs(overlap_int_complex)**2
             overlap_int_vals.append(cur_overlap_int)
+            overlap_int_vals_complex.append(overlap_int_complex)
             if verbose:
                 print('Injection efficiency for mode %d: %f' % (modenum, cur_overlap_int))
 
         overlap_int_vals = np.array(overlap_int_vals)
+        overlap_int_vals_complex = np.array(overlap_int_vals_complex)
         overlap_int = np.sum(overlap_int_vals)
         if verbose:
             print('Total power in input field: %f' % np.sum(np.abs(input_field)**2))
@@ -359,7 +369,10 @@ class lanternfiber:
             plt.title('Total coupling efficiency: %f' % overlap_int)
             plt.tight_layout()
 
-        return overlap_int, overlap_int_vals
+        if complex:
+            return overlap_int, overlap_int_vals, overlap_int_vals_complex
+        else:
+            return overlap_int, overlap_int_vals
 
 
     def make_complex_fld(self, raw_ampl):

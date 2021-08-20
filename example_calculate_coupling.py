@@ -41,13 +41,13 @@ f.make_arb_input_field('gaussian', power=power, location=posn_microns, sigma=sig
 ### Calculate coupling for one mode, and make some plots
 mode_to_measure = 1
 f.plot_injection_field(f.input_field)
-coupling = f.calc_injection(mode_field_number=mode_to_measure, verbose=True)
+coupling, coupling_complex = f.calc_injection(mode_field_number=mode_to_measure, verbose=True)
 
 
 ### Calculate coupling for all fiber modes
 modes_to_measure = np.arange(f.nmodes)
-coupling, mode_coupling = f.calc_injection_multi(mode_field_numbers=modes_to_measure,
-                                                 verbose=True, show_plots=True, fignum=2)
+coupling, mode_coupling, mode_coupling_complex = f.calc_injection_multi(mode_field_numbers=modes_to_measure,
+                                                 verbose=True, show_plots=True, fignum=2, complex=True)
 
 
 
