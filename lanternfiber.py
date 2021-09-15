@@ -25,6 +25,7 @@ class lanternfiber:
         self.all_mmphases = []
         self.all_smphases = []
         self.Cmat = None # Transfer matrix
+        self.Imat = None # Intensity-output matrix
         self.out_field_ampl = []
         self.out_field_phase = []
         self.wg_posns = None
@@ -392,6 +393,12 @@ class lanternfiber:
         fld_phase[raw_ampl < 0] = np.pi
         complex_psf = fld_ampl * np.exp(1j * fld_phase)
         return complex_psf
+
+
+    def cx2ap(self, input):
+        ampl = np.abs(input)
+        phase = np.angle(input)/np.pi*180
+        return ampl, phase
 
 
     def saveToRSoft(self, complex_psf, outfile="PSFOut", size_data=100, normtomax=False):
@@ -873,7 +880,7 @@ class lanternfiber:
         self.Cmat = Cmat
 
 
-    def make_transfer_matrix_mm2sm(self, mm_phase=None):
+    def make_transfer_matrix_mm2sm(self, mm_phase=None, show_plots=True):
         """
         Calculate the transfer matrix Dmat from MM-to-SM simulations.
         This requires that for each measurement, only one mode is excited
@@ -893,6 +900,55 @@ class lanternfiber:
             col = self.all_smpowers[col_num] * np.exp(1j*self.all_smphases[col_num]/180*np.pi) / mm_val
             Dmat[:,col_num] = col
         self.Cmat = Dmat
+        if show_plots:
+            self.plot_matrix()
+
+        # Make a matrix mapping to the output intensities
+        # real_mat = np.vstack()
+
+
+    def plot_matrix(self, matrix=None, fignum=1, cmap='twilight_shifted'):
+        if matrix is None:
+            matrix = self.Cmat
+        plt.figure(fignum)
+        plt.clf()
+        plt.subplot(121)
+        plt.imshow(np.abs(matrix))
+        plt.colorbar()
+        plt.title('Matrix amplitude')
+        plt.xlabel('Excited mode no.')
+        plt.ylabel('Waveguide no.')
+        plt.subplot(122)
+        plt.imshow(np.angle(matrix), cmap=cmap)
+        plt.colorbar()
+        plt.title('Matrix phase')
+        plt.xlabel('Excited mode no.')
+        plt.ylabel('Waveguide no.')
+        plt.tight_layout()
+
+
+    def matrix_complex2real(self, Cmat):
+        # TODO - Do this without a loop (Kronecker product?)
+        Rmat = np.zeros((Cmat.shape[0]*2, Cmat.shape[1]*2))
+        for m in range(Cmat.shape[0]):
+            for n in range(Cmat.shape[1]):
+                a = np.real(Cmat[m,n])
+                b = np.imag(Cmat[m,n])
+                block = np.array([[a, -b], [b, a]])
+                Rmat[m*2:m*2+2, n*2:n*2+2] = block
+        return Rmat
+
+
+    def matrix_real2complex(self, Rmat):
+        # TODO - Do this without a loop (Kronecker product?)
+        Cmat = np.zeros((Rmat.shape[0]//2, Rmat.shape[1]//2), dtype='complex')
+        for m in range(Cmat.shape[0]):
+            for n in range(Cmat.shape[1]):
+                block = Rmat[m*2:m*2+2, n*2:n*2+2]
+                a = block[0,0]
+                b = block[1,0]
+                Cmat[m,n] = a + b*1j
+        return Cmat
 
 
     def load_rsoft_data_sm2mm_single(self, rsoft_datadir, rsoft_fileprefix, show_plots=False,
@@ -1060,7 +1116,7 @@ class lanternfiber:
 
 
     def test_matrix(self, matrix, input_powers, input_phases, output_powers, output_phases, fignum=1, pausetime=1,
-                    num_to_show=None, unnormalise_smpower=True):
+                    num_to_show=None, unnormalise_smpower=True, unwrap_phase=True):
         """
         Plot the outputs from a set of inputs using the transfer matrix, and overplot
         the 'true' values measured.
@@ -1086,6 +1142,8 @@ class lanternfiber:
         unnormalise_smpower : bool
             If rsoft is normalising monitor power by input power, this will 'un-normalise'
             the monitor power by multiplying it by the total input power.
+        unwrap_phase
+            Add 360 degrees to phases < 0
         """
 
         plt.figure(fignum)
@@ -1106,14 +1164,15 @@ class lanternfiber:
             plt.subplot(212)
             plt.plot(output_phases[n],'-x')
             newangs = np.angle(np.matmul(matrix, input_val))/np.pi*180
-            newangs[newangs < 0] = newangs[newangs < 0]+360
+            if unwrap_phase:
+                newangs[newangs < 0] = newangs[newangs < 0]+360
             self.pred_phase = newangs
             plt.plot(newangs,'-+')
             plt.ylabel('SM output phase')
             plt.xlabel('Waveguide number)')
             plt.pause(0.001)
 
-            plt.figure(fignum+2)
+            plt.figure(fignum+1)
             plt.clf()
             plt.subplot(211)
             plt.plot(input_powers[n], 'x-')
@@ -1353,6 +1412,67 @@ class lanternfiber:
             self.save_multiple_rsoft(modecoeffs, outpath=outpath, outPrefix=outprefix, size_data=array_size_microns/2,
                                      indFile=indfile, makeBatFile=make_bat_file, numBatfiles=num_bat_files)
 
+
+    def unpack_cvec(self,input_vec):
+        n_out = len(input_vec)*2
+        out_vec = np.zeros(n_out)
+        for k in range(n_out):
+            inmode_num = np.int(k/2)
+            if k%2 == 0:
+                out_vec[k] = np.real(input_vec[inmode_num])
+            else:
+                out_vec[k] = np.imag(input_vec[inmode_num])
+        return out_vec
+
+
+    def make_sim_data(self, ndata=1, in_amp_phase = None, amp_range=[0,1], phase_range=[0, 2*np.pi]):
+        input_modecoeffs = []
+        output_smvals = []
+        loval, hival = amp_range
+        loval_phase, hival_phase = phase_range
+        if in_amp_phase is not None: # Just make a single sample as specified
+            input_modecoeffs = in_amp_phase[0] * np.exp(1j*in_amp_phase[1])
+            output_smvals = self.Cmat @ input_modecoeffs
+        else:
+            for k in range(ndata): # Make a random set
+                mode_amps = np.random.rand(self.nmodes) * (hival-loval) + loval
+                mode_phases = np.random.rand(self.nmodes) * (hival_phase-loval_phase) + loval_phase
+                modecoeff = mode_amps * np.exp(1j*mode_phases)
+                input_modecoeffs.append(modecoeff)
+                output_vals = self.Cmat @ modecoeff
+                output_smvals.append(output_vals)
+        return input_modecoeffs, output_smvals
+
+
+    def generate_sim_I_data(self, ndata=1, in_amp_phase = None, amp_range=[0,1], phase_range=[0, 2*np.pi],
+                            outfilename=None, return_output=False):
+        simdata_inputs, simdata_outputs = self.make_sim_data(ndata, amp_range=amp_range, phase_range=phase_range)
+
+        # Unpack input data into real,imag pairs
+        simdata_input_upk = []
+        for invec in simdata_inputs:
+            invec_upk = self.unpack_cvec(invec)
+            simdata_input_upk.append(invec_upk)
+
+        # Make output data into intensities
+        simdata_outputI = []
+        for outvec in simdata_outputs:
+            # outvec_upk = unpack_cvec(outvec)
+            simdata_outputI.append(np.abs(outvec)**2)
+
+        # Save to file as numpy arrays
+        simdata_input_arr = np.array(simdata_input_upk)
+        simdata_outputI_arr = np.array(simdata_outputI)
+
+        if outfilename is not None:
+            np.savez(self.datadir+outfilename, simdata_input_arr=simdata_input_arr,
+                     simdata_outputI_arr=simdata_outputI_arr)
+            print('Saved %d simulated data examples to file ' % ndata + outfilename)
+
+        if return_output:
+            return simdata_input_arr, simdata_outputI_arr
+
+        return
 
 
 

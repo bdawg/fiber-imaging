@@ -32,7 +32,7 @@ f.load_rsoft_data_customfld(rsoft_datadir, rsoft_fileprefix, indfile, np_filepre
 # f.set_mmvals_nominal(square=True)
 f.make_transfer_matrix_mm2sm(mm_phase=None)
 
-f.test_matrix(f.Dmat, f.all_mmpowers, f.all_mmphases, f.all_smpowers, f.all_smphases, pausetime=0.1)
+f.test_matrix(f.Cmat, f.all_mmpowers, f.all_mmphases, f.all_smpowers, f.all_smphases, pausetime=0.1)
 
 
 
@@ -46,7 +46,7 @@ rsoft_fileprefix = 'probeset_19LP_02randset5-anyampphaseprobeset_19LP_02randset5
 f.load_rsoft_data_customfld(rsoft_datadir, rsoft_fileprefix, indfile, np_fileprefix='probeset_19LP_02randset5-anyampphase_',
                             show_plots=show_plots, save_output=False, nwgs=4, show_indivmasks=False,
                             use_pathway_mons=False, use_monitor_objects=True)
-f.test_matrix(f.Dmat, f.all_mmpowers, f.all_mmphases, f.all_smpowers, f.all_smphases, pausetime=0.1,
-              num_to_show=4, unnormalise_smpower=True)
+f.test_matrix(f.Cmat, f.all_mmpowers, f.all_mmphases, f.all_smpowers, f.all_smphases, pausetime=0.1,
+              num_to_show=3, unnormalise_smpower=True)
 
 
