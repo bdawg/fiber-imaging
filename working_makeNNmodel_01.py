@@ -29,7 +29,7 @@ pdict['batchSize'] = 32
 pdict['learningRate'] = 0.0001
 pdict['lossFunc'] = 'mean_squared_error'
 pdict['n_units'] = 2000
-pdict['epochs'] = 200
+pdict['epochs'] = 20
 # pdict['dropout_rate'] = 0.2
 pdict['bottleneck'] = 25
 

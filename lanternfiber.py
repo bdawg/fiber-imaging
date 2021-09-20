@@ -63,7 +63,7 @@ class lanternfiber:
                              [-5,1]
                              ])
 
-    def find_fiber_modes(self, max_l=100):
+    def find_fiber_modes(self, max_l=100, return_n_unique=False):
         """
         Finds LP modes for the specified fiber.
 
@@ -96,6 +96,8 @@ class lanternfiber:
         self.allmodes_l = allmodes_l
         self.allmodes_m = allmodes_m
         self.nLPmodes = nLPmodes
+        if return_n_unique:
+            return total_unique_modes
 
 
     def make_fiber_modes(self, max_r=2, npix=100, zlim=0.04, show_plots=False,
@@ -511,7 +513,7 @@ class lanternfiber:
                 batfile.close()
 
             if numBatfiles > 1:
-                superbatfile = open(outpath + "runAllBatfiles.bat", "w")
+                superbatfile = open(outpath + "runAllBatfiles" + outPrefix + ".bat", "w")
                 for batfilename in allBatfileNames:
                     cmdStr = "start cmd /k call " + batfilename + "\n"
                     superbatfile.write(cmdStr)
